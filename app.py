@@ -1,6 +1,5 @@
 import streamlit as st
 from openai import OpenAI
-import json
 
 # 页面配置
 st.set_page_config(
@@ -8,6 +7,13 @@ st.set_page_config(
     page_icon="🎓",
     layout="wide"
 )
+
+# 从 secrets 读取 API Key（部署时使用）
+try:
+    if not st.session_state.get("api_key"):
+        st.session_state.api_key = st.secrets["OPENAI_API_KEY"]
+except (KeyError, FileNotFoundError):
+    pass
 
 # 初始化 session state
 if "messages" not in st.session_state:
@@ -56,11 +62,19 @@ with st.sidebar:
     st.title("⚙️ 设置")
 
     # API Key 输入
+    try:
+        default_key = st.secrets["OPENAI_API_KEY"]
+        placeholder = "已从配置读取"
+    except (KeyError, FileNotFoundError):
+        default_key = ""
+        placeholder = "sk-..."
+
     api_key = st.text_input(
         "OpenAI API Key",
+        value=default_key,
         type="password",
-        placeholder="sk-...",
-        help="请输入你的 OpenAI API Key"
+        placeholder=placeholder,
+        help="部署时会从 secrets 自动读取"
     )
 
     # 保存 API Key 到 session state
