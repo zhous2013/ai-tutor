@@ -8,12 +8,16 @@ st.set_page_config(
     layout="wide"
 )
 
-# 从 secrets 读取 API Key（部署时使用）
+# 从 secrets 读取配置
 has_secrets = False
 try:
     if not st.session_state.get("api_key"):
         st.session_state.api_key = st.secrets["OPENAI_API_KEY"]
         has_secrets = True
+    if not st.session_state.get("api_base"):
+        st.session_state.api_base = st.secrets.get("API_BASE", "https://api.openai.com/v1")
+    if not st.session_state.get("model"):
+        st.session_state.model = st.secrets.get("MODEL", "gpt-4o-mini")
 except (KeyError, FileNotFoundError):
     has_secrets = False
 
@@ -22,6 +26,10 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
+if "api_base" not in st.session_state:
+    st.session_state.api_base = "https://api.openai.com/v1"
+if "model" not in st.session_state:
+    st.session_state.model = "gpt-4o-mini"
 if "system_prompt" not in st.session_state:
     st.session_state.system_prompt = """你是一位来自新加坡科技设计大学 (SUTD) 的资深 AI 教育学教授。
 
@@ -41,9 +49,9 @@ if "system_prompt" not in st.session_state:
 
 请用中文回答，保持教育的专业性和启发性。"""
 
-def get_ai_response(api_key, messages, system_prompt):
-    """调用 OpenAI API 获取响应"""
-    client = OpenAI(api_key=api_key)
+def get_ai_response(api_key, api_base, model, messages, system_prompt):
+    """调用 AI API 获取响应"""
+    client = OpenAI(api_key=api_key, base_url=api_base)
 
     # 添加系统提示词
     conversation = [{"role": "system", "content": system_prompt}]
@@ -51,7 +59,7 @@ def get_ai_response(api_key, messages, system_prompt):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model,
             messages=conversation,
             temperature=0.7,
         )
@@ -63,29 +71,74 @@ def get_ai_response(api_key, messages, system_prompt):
 with st.sidebar:
     st.title("⚙️ 设置")
 
-    # 显示 API Key 配置状态
+    # 显示 Secrets 配置状态
     if has_secrets:
-        st.success("✅ 已从环境配置读取 API Key")
+        st.success("✅ 已从环境配置读取 API 设置")
     else:
-        st.warning("⚠️ 未检测到环境 API Key，请手动输入")
+        st.warning("⚠️ 未检测到环境配置，请手动输入")
+
+    st.divider()
+
+    # API Provider 预设
+    provider = st.selectbox(
+        "选择 API 提供商",
+        ["OpenAI", "智谱 AI (GLM)", "自定义"],
+        help="选择预设或自定义 API 端点"
+    )
+
+    # 根据预设填充默认值
+    if provider == "OpenAI":
+        default_base = "https://api.openai.com/v1"
+        default_model = "gpt-4o-mini"
+    elif provider == "智谱 AI (GLM)":
+        default_base = "https://open.bigmodel.cn/api/paas/v4"
+        default_model = "glm-4-flash"
+    else:
+        default_base = st.session_state.api_base
+        default_model = st.session_state.model
+
+    st.divider()
+
+    # API 配置
+    st.subheader("🔌 API 配置")
+
+    api_base = st.text_input(
+        "API Base URL",
+        value=default_base,
+        placeholder="https://api.openai.com/v1",
+        help="API 服务的基础地址"
+    )
+
+    model = st.text_input(
+        "模型名称",
+        value=default_model,
+        placeholder="gpt-4o-mini",
+        help="使用的模型名称"
+    )
 
     st.divider()
 
     # API Key 输入
     api_key = st.text_input(
-        "OpenAI API Key",
+        "API Key",
         type="password",
-        placeholder="sk-...",
+        placeholder="输入你的 API Key",
         help="部署时会从 secrets 自动读取"
     )
 
-    # 保存 API Key 到 session state
+    # 保存配置到 session state
     if api_key:
         st.session_state.api_key = api_key
+    if api_base:
+        st.session_state.api_base = api_base
+    if model:
+        st.session_state.model = model
 
-    # 显示当前 API Key 状态
+    # 显示当前配置状态
     if st.session_state.api_key:
         st.caption(f"🔑 API Key 已配置 (长度: {len(st.session_state.api_key)})")
+        st.caption(f"🌐 API 端点: {st.session_state.api_base}")
+        st.caption(f"🤖 模型: {st.session_state.model}")
     else:
         st.caption("⚠️ API Key 未配置")
 
@@ -121,8 +174,11 @@ st.markdown("---")
 
 # 显示 API Key 提示
 if not st.session_state.api_key:
-    st.error("⚠️ 请先在左侧边栏配置 OpenAI API Key 后再开始对话")
-    st.info("📌 部署到 Streamlit Cloud 时，请在 Settings → Secrets 中添加 OPENAI_API_KEY")
+    st.error("⚠️ 请先在左侧边栏配置 API Key 后再开始对话")
+    st.info("📌 部署到 Streamlit Cloud 时，请在 Settings → Secrets 中添加：")
+    st.code("OPENAI_API_KEY = \"你的密钥\"")
+    st.code("API_BASE = \"https://api.openai.com/v1\"  # 可选")
+    st.code("MODEL = \"gpt-4o-mini\"  # 可选")
 
 # 聊天历史显示
 for message in st.session_state.messages:
@@ -133,7 +189,7 @@ for message in st.session_state.messages:
 prompt = st.chat_input("请输入你的问题...")
 if prompt:
     if not st.session_state.api_key:
-        st.error("⚠️ 请先在左侧边栏输入你的 OpenAI API Key")
+        st.error("⚠️ 请先在左侧边栏输入 API Key")
         st.stop()
 
     # 显示用户消息
@@ -147,6 +203,8 @@ if prompt:
         with st.spinner("思考中..."):
             response = get_ai_response(
                 st.session_state.api_key,
+                st.session_state.api_base,
+                st.session_state.model,
                 st.session_state.messages,
                 st.session_state.system_prompt
             )
