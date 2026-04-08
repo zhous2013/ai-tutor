@@ -104,7 +104,7 @@ with st.sidebar:
     # API Provider 预设
     provider = st.selectbox(
         "选择 API 提供商",
-        ["OpenAI", "智谱 AI (GLM)", "自定义"],
+        ["OpenAI", "智谱海外版 (z.ai)", "智谱国内版 (GLM)", "自定义"],
         help="选择预设或自定义 API 端点"
     )
 
@@ -112,7 +112,10 @@ with st.sidebar:
     if provider == "OpenAI":
         default_base = "https://api.openai.com/v1"
         default_model = "gpt-4o-mini"
-    elif provider == "智谱 AI (GLM)":
+    elif provider == "智谱海外版 (z.ai)":
+        default_base = "https://open.bigmodel.ai/api/paas/v4"
+        default_model = "glm-4"
+    elif provider == "智谱国内版 (GLM)":
         default_base = "https://open.bigmodel.cn/api/paas/v4"
         default_model = "glm-4.7"
     else:
