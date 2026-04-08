@@ -9,11 +9,13 @@ st.set_page_config(
 )
 
 # 从 secrets 读取 API Key（部署时使用）
+has_secrets = False
 try:
     if not st.session_state.get("api_key"):
         st.session_state.api_key = st.secrets["OPENAI_API_KEY"]
+        has_secrets = True
 except (KeyError, FileNotFoundError):
-    pass
+    has_secrets = False
 
 # 初始化 session state
 if "messages" not in st.session_state:
@@ -61,25 +63,31 @@ def get_ai_response(api_key, messages, system_prompt):
 with st.sidebar:
     st.title("⚙️ 设置")
 
-    # API Key 输入
-    try:
-        default_key = st.secrets["OPENAI_API_KEY"]
-        placeholder = "已从配置读取"
-    except (KeyError, FileNotFoundError):
-        default_key = ""
-        placeholder = "sk-..."
+    # 显示 API Key 配置状态
+    if has_secrets:
+        st.success("✅ 已从环境配置读取 API Key")
+    else:
+        st.warning("⚠️ 未检测到环境 API Key，请手动输入")
 
+    st.divider()
+
+    # API Key 输入
     api_key = st.text_input(
         "OpenAI API Key",
-        value=default_key,
         type="password",
-        placeholder=placeholder,
+        placeholder="sk-...",
         help="部署时会从 secrets 自动读取"
     )
 
     # 保存 API Key 到 session state
     if api_key:
         st.session_state.api_key = api_key
+
+    # 显示当前 API Key 状态
+    if st.session_state.api_key:
+        st.caption(f"🔑 API Key 已配置 (长度: {len(st.session_state.api_key)})")
+    else:
+        st.caption("⚠️ API Key 未配置")
 
     st.divider()
 
@@ -110,6 +118,11 @@ with st.sidebar:
 # 主界面
 st.title("🎓 SUTD AI 教育助手")
 st.markdown("---")
+
+# 显示 API Key 提示
+if not st.session_state.api_key:
+    st.error("⚠️ 请先在左侧边栏配置 OpenAI API Key 后再开始对话")
+    st.info("📌 部署到 Streamlit Cloud 时，请在 Settings → Secrets 中添加 OPENAI_API_KEY")
 
 # 聊天历史显示
 for message in st.session_state.messages:
