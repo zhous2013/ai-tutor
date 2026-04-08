@@ -1,5 +1,5 @@
 import streamlit as st
-from openai import OpenAI
+import httpx
 
 # 页面配置
 st.set_page_config(
@@ -51,19 +51,45 @@ if "system_prompt" not in st.session_state:
 
 def get_ai_response(api_key, api_base, model, messages, system_prompt):
     """调用 AI API 获取响应"""
-    client = OpenAI(api_key=api_key, base_url=api_base)
+    from openai import OpenAI
 
     # 添加系统提示词
     conversation = [{"role": "system", "content": system_prompt}]
     conversation.extend(messages)
 
     try:
+        client = OpenAI(api_key=api_key, base_url=api_base)
         response = client.chat.completions.create(
             model=model,
             messages=conversation,
             temperature=0.7,
         )
         return response.choices[0].message.content
+    except UnicodeEncodeError:
+        # 如果遇到编码错误，尝试使用 httpx 直接调用
+        return get_ai_response_httpx(api_key, api_base, model, conversation)
+    except Exception as e:
+        return f"❌ 发生错误: {str(e)}"
+
+def get_ai_response_httpx(api_key, api_base, model, messages):
+    """使用 httpx 直接调用 API（备用方案）"""
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.7
+    }
+
+    try:
+        with httpx.Client(timeout=60.0) as client:
+            response = client.post(api_base + "/chat/completions", json=data, headers=headers)
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"]
     except Exception as e:
         return f"❌ 发生错误: {str(e)}"
 
