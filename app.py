@@ -71,7 +71,8 @@ def get_ai_response(api_key, api_base, model, messages, system_prompt):
     }
 
     try:
-        with httpx.Client(timeout=60.0) as client:
+        # 使用 follow_redirects=True 自动跟随重定向
+        with httpx.Client(timeout=60.0, follow_redirects=True) as client:
             response = client.post(
                 f"{api_base}/chat/completions",
                 json=data,
@@ -113,7 +114,7 @@ with st.sidebar:
         default_base = "https://api.openai.com/v1"
         default_model = "gpt-4o-mini"
     elif provider == "智谱海外版 (z.ai)":
-        default_base = "https://open.bigmodel.ai/api/paas/v4"
+        default_base = "https://api.z.ai/v1"
         default_model = "glm-4"
     elif provider == "智谱国内版 (GLM)":
         default_base = "https://open.bigmodel.cn/api/paas/v4"
