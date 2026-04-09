@@ -76,7 +76,7 @@ def get_ai_response(api_key, model_name, messages):
 
     # 请求体
     data = {
-        "model": model_name,
+        "model": "glm-4.7",
         "messages": full_conversation,
         "temperature": 0.7
     }
