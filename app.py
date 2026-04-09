@@ -22,29 +22,9 @@ st.set_page_config(
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# 存储智谱 API Key（优先使用用户输入，其次使用 Secrets）
-try:
-    # 尝试从 Streamlit Cloud Secrets 读取
-    secrets_api_key = st.secrets["ZHIPUAI_API_KEY"]
-except KeyError:
-    # 如果没有 Secrets，使用空值
-    secrets_api_key = ""
-
-# 初始化 Session State
-# 优先使用用户在左侧边栏输入的值
-if "zhipu_api_key" not in st.session_state:
-    # 如果 session_state 中没有值，优先使用 secrets 中的值
-    if secrets_api_key:
-        st.session_state.zhipu_api_key = secrets_api_key
-    else:
-        st.session_state.zhipu_api_key = ""
-
-# 存储选择的模型名称
-if "selected_model" not in st.session_state:
-    st.session_state.selected_model = "glm-4.7"  # 默认选中 glm-4.7
-
-# 智谱海外版 API 配置
-ZHIPU_API_BASE = "https://open.bigmodel.cn/api/paas/v4"
+# 存储选择的数据源类型
+if "api_source" not in st.session_state:
+    st.session_state.api_source = "secrets"  # 默认使用 secrets
 
 # =============================================================================
 # 硬编码的 AI 角色设定（System Prompt）
@@ -75,14 +55,14 @@ def get_ai_response(api_key, model_name, messages):
 
     Args:
         api_key: 智谱 API Key
-        model_name: 模型名称（glm-4.7 或 glm-4-flash）
+        model_name: 模型名称（glm-4.0）
         messages: 对话历史列表
 
     Returns:
         AI 的回复文本，或错误信息字符串
     """
     # 智谱海外版 API 端点
-    url = f"{ZHIPU_API_BASE}/chat/completions"
+    url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 
     # 请求头
     headers = {
@@ -121,14 +101,14 @@ def get_ai_response(api_key, model_name, messages):
             error_msg = error_detail.get('error', {}).get('message', str(e))
 
             # 根据错误类型返回不同的提示
-            if "401" in str(e.response.status_code):
-                return "⚠️ API Key 无效或已过期，请检查左侧配置。"
+            if "401" in str(e.response.status_code) or "unauthorized" in str(e).lower():
+                return "⚠️ API Key 无效，请检查配置。"
             elif "429" in str(e.response.status_code):
                 return "⚠️ API 调用频率超限，请稍后重试。"
             elif "500" in str(e.response.status_code):
                 return "⚠️ 智谱服务暂时不可用，请稍后重试。"
             else:
-                return f"⚠️ API 错误: {error_msg}"
+                return f"⚠️ HTTP 错误: {error_msg}"
 
         except:
             return f"⚠️ HTTP 错误: {e.response.status_code}"
@@ -162,56 +142,58 @@ with st.sidebar:
     st.divider()
 
     # --------------------
-    # 1. API Key 配置
+    # 1. 数据源选择
     # --------------------
-    st.subheader("🔑 API 配置")
+    st.subheader("📊 数据源选择")
 
-    # 显示当前 API Key 来源
-    try:
-        secrets_api_key = st.secrets["ZHIPUAI_API_KEY"]
-        is_from_secrets = st.session_state.zhipu_api_key == secrets_api_key
-    except KeyError:
-        is_from_secrets = False
-
-    if is_from_secrets:
-        st.success("✅ 使用配置文件中的 API Key")
-    elif st.session_state.zhipu_api_key:
-        st.info("ℹ️ 使用左侧输入的 API Key")
-    else:
-        st.warning("⚠️ 请输入 API Key")
-
-    zhipu_api_key = st.text_input(
-        label="智谱 API Key",
-        type="password",
-        value=st.session_state.zhipu_api_key,
-        placeholder="请输入智谱海外版 API Key",
-        help="可覆盖配置文件中的 API Key"
+    # 使用单选按钮选择数据源
+    source = st.radio(
+        "选择 API Key 来源",
+        options=["配置文件（Secrets）", "手动输入"],
+        index=0 if st.session_state.api_source == "secrets" else 1,
+        help="Secrets 优先级更高"
     )
 
-    # 保存用户输入的 API Key 到 Session State
-    if zhipu_api_key != st.session_state.zhipu_api_key:
-        st.session_state.zhipu_api_key = zhipu_api_key
+    # 保存用户的选择
+    st.session_state.api_source = source
 
     st.divider()
 
     # --------------------
-    # 2. 模型选择
+    # 2. API Key 配置
     # --------------------
-    st.subheader("🤖 模型选择")
+    st.subheader("🔑 API 配置")
 
-    available_models = ["glm-4.7", "glm-4-flash"]
+    # 根据数据源显示不同的输入框
+    if source == "secrets":
+        # 使用 secrets 时，不显示输入框，只显示状态
+        try:
+            api_key = st.secrets["ZHIPUAI_API_KEY"]
+            st.success("✅ 使用配置文件中的 API Key")
+            # 存储到 session state
+            st.session_state.api_key = api_key
+        except KeyError:
+            st.warning("⚠️ 配置文件中未找到 API Key")
+            st.session_state.api_key = ""
+    else:
+        # 手动输入模式
+        api_key = st.text_input(
+            label="智谱 API Key",
+            type="password",
+            value=st.session_state.get("api_key", ""),
+            placeholder="请输入智谱海外版 API Key",
+            help="获取地址: https://z.ai/manage-apikey/apikey-list"
+        )
 
-    # 使用 selectbox 让用户选择模型，默认选中 glm-4.7
-    selected_model = st.selectbox(
-        label="选择大模型",
-        options=available_models,
-        index=0 if st.session_state.selected_model not in available_models else available_models.index(st.session_state.selected_model),
-        help="glm-4.7: 更强大的模型；glm-4-flash: 快速响应的模型"
-    )
+        # 保存用户输入的 API Key 到 Session State
+        if api_key:
+            st.session_state.api_key = api_key
 
-    # 保存用户选择的模型到 Session State
-    if selected_model != st.session_state.selected_model:
-        st.session_state.selected_model = selected_model
+        # 显示当前使用的 API Key
+        if st.session_state.api_key:
+            st.caption(f"🔑 API Key 已配置 (长度: {len(st.session_state.api_key)})")
+        else:
+            st.caption("⚠️ API Key 未配置")
 
     st.divider()
 
@@ -270,8 +252,11 @@ user_input = st.chat_input(
 
 if user_input:
     # 状态检查：如果没有配置 API Key，拦截请求并给出提示
-    if not st.session_state.zhipu_api_key:
-        st.warning("⚠️ 请先在左侧边栏输入智谱 API Key 后再开始对话")
+    if not st.session_state.api_key:
+        if st.session_state.api_source == "secrets":
+            st.warning("⚠️ 配置文件中未找到有效的 API Key，请在 Streamlit Cloud Secrets 中配置")
+        else:
+            st.warning("⚠️ 请先输入智谱 API Key 后再开始对话")
         st.stop()
 
     # 显示用户消息
@@ -287,8 +272,8 @@ if user_input:
         with st.spinner("思考中..."):
             # 调用 API 并获取回复
             ai_response = get_ai_response(
-                api_key=st.session_state.zhipu_api_key,
-                model_name=st.session_state.selected_model,
+                api_key=st.session_state.api_key,
+                model_name="glm-4.0",
                 messages=st.session_state.messages
             )
             st.markdown(ai_response)
