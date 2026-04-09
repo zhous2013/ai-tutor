@@ -147,7 +147,7 @@ with st.sidebar:
     st.subheader("📊 数据源选择")
 
     # 使用单选按钮选择数据源
-    source = st.radio(
+    source = st.selectbox(
         "选择 API Key 来源",
         options=["配置文件（Secrets）", "手动输入"],
         index=0 if st.session_state.api_source == "secrets" else 1,
