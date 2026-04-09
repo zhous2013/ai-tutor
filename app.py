@@ -4,7 +4,7 @@ SUTD AI 课程助教
 """
 
 import streamlit as st
-from zhipuai import ZhipuAI
+import httpx
 
 # =============================================================================
 # 页面配置
@@ -36,87 +36,85 @@ except KeyError:
 if "selected_model" not in st.session_state:
     st.session_state.selected_model = "glm-4.7"  # 默认选中 glm-4.7
 
-# 存储智谱 AI 客户端实例（避免重复创建）
-if "zhipu_client" not in st.session_state:
-    st.session_state.zhipu_client = None
-
-# =============================================================================
-# 硬编码的 AI 角色设定（System Prompt）
-# =============================================================================
-SYSTEM_PROMPT = """你现在是 SUTD (新加坡科技与设计大学) '人工智能在教育中的应用' 课程的资深教授兼 AI 助教。
-
-你的核心教学法是苏格拉底式提问法 (Socratic Method)。
-
-无论学生问什么问题，你绝对不能直接给出完整答案或直接写出完整代码。
-
-你必须：
-
-先肯定学生的提问，给予鼓励。
-
-给出一点点核心提示或概念解释。
-
-用一个启发性的问题作为结尾，引导学生自己思考出下一步或得出结论。
-
-语气要专业、温和、富有学术严谨性，时刻展现出一位顶尖教育者的素养。"""
+# 智谱海外版 API 配置
+ZHIPU_API_BASE = "https://open.bigmodel.cn/api/paas/v4"
 
 # =============================================================================
 # 核心功能函数
 # =============================================================================
 
-def initialize_zhipu_client(api_key):
+def get_ai_response(api_key, model_name, messages):
     """
-    初始化智谱 AI 客户端
+    使用 httpx 直接调用智谱 AI 大模型获取回复
 
     Args:
         api_key: 智谱 API Key
-
-    Returns:
-        ZhipuAI 客户端实例
-    """
-    try:
-        return ZhipuAI(api_key=api_key)
-    except Exception as e:
-        st.error(f"❌ 初始化客户端失败: {str(e)}")
-        return None
-
-
-def get_ai_response(client, model_name, messages):
-    """
-    调用智谱 AI 大模型获取回复
-
-    Args:
-        client: ZhipuAI 客户端实例
         model_name: 模型名称（glm-4.7 或 glm-4-flash）
         messages: 对话历史列表
 
     Returns:
         AI 的回复文本，或错误信息字符串
     """
+    # 智谱海外版 API 端点
+    url = f"{ZHIPU_API_BASE}/chat/completions"
+
+    # 请求头
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
     # 构建完整的对话列表，包含 System Prompt
     full_conversation = [{"role": "system", "content": SYSTEM_PROMPT}]
     full_conversation.extend(messages)
 
+    # 请求体
+    data = {
+        "model": model_name,
+        "messages": full_conversation,
+        "temperature": 0.7
+    }
+
     try:
-        # 调用智谱 AI API
-        response = client.chat.completions.create(
-            model=model_name,
-            messages=full_conversation,
-            temperature=0.7,  # 稍高的温度值，保持一定的创造性
-        )
-        # 返回 AI 的回复内容
-        return response.choices[0].message.content
+        # 使用 httpx 发送请求
+        with httpx.Client(timeout=60.0, follow_redirects=True) as client:
+            response = client.post(url, json=data, headers=headers)
+            response.raise_for_status()
+            result = response.json()
+
+            # 解析并返回 AI 的回复内容
+            if "choices" in result and len(result["choices"]) > 0:
+                return result["choices"][0]["message"]["content"]
+            else:
+                return "⚠️ AI 返回了空响应，请重试。"
+
+    except httpx.HTTPStatusError as e:
+        # HTTP 错误处理
+        try:
+            error_detail = e.response.json()
+            error_msg = error_detail.get('error', {}).get('message', str(e))
+
+            # 根据错误类型返回不同的提示
+            if "401" in str(e.response.status_code):
+                return "⚠️ API Key 无效或已过期，请检查左侧配置。"
+            elif "429" in str(e.response.status_code):
+                return "⚠️ API 调用频率超限，请稍后重试。"
+            elif "500" in str(e.response.status_code):
+                return "⚠️ 智谱服务暂时不可用，请稍后重试。"
+            else:
+                return f"⚠️ API 错误: {error_msg}"
+
+        except:
+            return f"⚠️ HTTP 错误: {e.response.status_code}"
+
+    except httpx.ConnectError:
+        return "⚠️ 网络连接失败，请检查网络后重试。"
+
+    except httpx.TimeoutException:
+        return "⚠️ 请求超时，请稍后重试。"
+
     except Exception as e:
-        # 拦截异常并返回友好的错误信息
-        error_msg = str(e)
-        # 检查是否是 API Key 相关错误
-        if "API" in error_msg or "api_key" in error_msg.lower() or "unauthorized" in error_msg.lower():
-            return f"⚠️ 智谱 API Key 验证失败，请检查左侧配置的 API Key 是否正确。"
-        # 检查是否是模型相关错误
-        elif "model" in error_msg:
-            return f"⚠️ 模型调用失败，请尝试切换其他模型。"
-        # 其他错误
-        else:
-            return f"⚠️ 调用智谱 API 时发生错误: {error_msg}"
+        return f"⚠️ 发生未知错误: {str(e)}"
 
 
 def clear_chat_history():
@@ -153,8 +151,6 @@ with st.sidebar:
     # 保存用户输入的 API Key 到 Session State
     if zhipu_api_key != st.session_state.zhipu_api_key:
         st.session_state.zhipu_api_key = zhipu_api_key
-        # 当 API Key 变化时，清除旧的客户端实例
-        st.session_state.zhipu_client = None
 
     st.divider()
 
@@ -238,15 +234,6 @@ if user_input:
         st.warning("⚠️ 请先在左侧边栏输入智谱 API Key 后再开始对话")
         st.stop()
 
-    # 初始化智谱 AI 客户端（如果尚未初始化）
-    if st.session_state.zhipu_client is None:
-        st.session_state.zhipu_client = initialize_zhipu_client(st.session_state.zhipu_api_key)
-
-    # 检查客户端是否成功初始化
-    if st.session_state.zhipu_client is None:
-        st.error("❌ 无法初始化智谱 AI 客户端，请检查 API Key 是否正确")
-        st.stop()
-
     # 显示用户消息
     with st.chat_message("user", avatar="🧑‍🎓"):
         st.markdown(user_input)
@@ -260,7 +247,7 @@ if user_input:
         with st.spinner("思考中..."):
             # 调用 API 并获取回复
             ai_response = get_ai_response(
-                client=st.session_state.zhipu_client,
+                api_key=st.session_state.zhipu_api_key,
                 model_name=st.session_state.selected_model,
                 messages=st.session_state.messages
             )
