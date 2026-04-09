@@ -22,9 +22,15 @@ st.set_page_config(
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# 存储智谱 API Key
-if "zhipu_api_key" not in st.session_state:
-    st.session_state.zhipu_api_key = ""
+# 存储智谱 API Key（从 Secrets 优先读取）
+try:
+    # 尝试从 Streamlit Cloud Secrets 读取
+    if "zhipu_api_key" not in st.session_state:
+        st.session_state.zhipu_api_key = st.secrets["ZHIPUAI_API_KEY"]
+except KeyError:
+    # 如果没有 Secrets，使用空值
+    if "zhipu_api_key" not in st.session_state:
+        st.session_state.zhipu_api_key = ""
 
 # 存储选择的模型名称
 if "selected_model" not in st.session_state:
