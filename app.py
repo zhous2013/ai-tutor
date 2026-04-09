@@ -22,14 +22,21 @@ st.set_page_config(
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# 存储智谱 API Key（从 Secrets 优先读取）
+# 存储智谱 API Key（优先使用用户输入，其次使用 Secrets）
 try:
     # 尝试从 Streamlit Cloud Secrets 读取
-    if "zhipu_api_key" not in st.session_state:
-        st.session_state.zhipu_api_key = st.secrets["ZHIPUAI_API_KEY"]
+    secrets_api_key = st.secrets["ZHIPUAI_API_KEY"]
 except KeyError:
     # 如果没有 Secrets，使用空值
-    if "zhipu_api_key" not in st.session_state:
+    secrets_api_key = ""
+
+# 初始化 Session State
+# 优先使用用户在左侧边栏输入的值
+if "zhipu_api_key" not in st.session_state:
+    # 如果 session_state 中没有值，优先使用 secrets 中的值
+    if secrets_api_key:
+        st.session_state.zhipu_api_key = secrets_api_key
+    else:
         st.session_state.zhipu_api_key = ""
 
 # 存储选择的模型名称
@@ -159,12 +166,26 @@ with st.sidebar:
     # --------------------
     st.subheader("🔑 API 配置")
 
+    # 显示当前 API Key 来源
+    try:
+        secrets_api_key = st.secrets["ZHIPUAI_API_KEY"]
+        is_from_secrets = st.session_state.zhipu_api_key == secrets_api_key
+    except KeyError:
+        is_from_secrets = False
+
+    if is_from_secrets:
+        st.success("✅ 使用配置文件中的 API Key")
+    elif st.session_state.zhipu_api_key:
+        st.info("ℹ️ 使用左侧输入的 API Key")
+    else:
+        st.warning("⚠️ 请输入 API Key")
+
     zhipu_api_key = st.text_input(
         label="智谱 API Key",
         type="password",
         value=st.session_state.zhipu_api_key,
         placeholder="请输入智谱海外版 API Key",
-        help="获取地址: https://z.ai/manage-apikey/apikey-list"
+        help="可覆盖配置文件中的 API Key"
     )
 
     # 保存用户输入的 API Key 到 Session State
