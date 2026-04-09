@@ -114,7 +114,7 @@ with st.sidebar:
         default_base = "https://api.openai.com/v1"
         default_model = "gpt-4o-mini"
     elif provider == "智谱海外版 (z.ai)":
-        default_base = "https://api.z.ai/v1"
+        default_base = "https://open.bigmodel.ai/api/paas/v4"
         default_model = "glm-4"
     elif provider == "智谱国内版 (GLM)":
         default_base = "https://open.bigmodel.cn/api/paas/v4"
@@ -165,6 +165,8 @@ with st.sidebar:
         st.caption(f"🔑 API Key 已配置 (长度: {len(st.session_state.api_key)})")
         st.caption(f"🌐 API 端点: {st.session_state.api_base}")
         st.caption(f"🤖 模型: {st.session_state.model}")
+        if provider == "智谱海外版 (z.ai)":
+            st.caption("📖 文档: https://z.ai/docs")
     else:
         st.caption("⚠️ API Key 未配置")
 
