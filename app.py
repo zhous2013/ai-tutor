@@ -1,250 +1,264 @@
-import streamlit as st
-import httpx
-import json
+"""
+SUTD AI 课程助教
+基于苏格拉底式提问法的智能辅导系统
+"""
 
+import streamlit as st
+from zhipuai import ZhipuAI
+
+# =============================================================================
 # 页面配置
+# =============================================================================
 st.set_page_config(
-    page_title="AI 教育助手",
+    page_title="SUTD AI 课程助教",
     page_icon="🎓",
     layout="wide"
 )
 
-# 从 secrets 读取配置
-has_secrets = False
-try:
-    # 直接从 secrets 读取配置（最高优先级）
-    api_key_from_secrets = st.secrets["OPENAI_API_KEY"]
-    api_base_from_secrets = st.secrets.get("API_BASE", "https://api.openai.com/v1")
-    model_from_secrets = st.secrets.get("MODEL", "gpt-4o-mini")
-
-    # 只有在 session_state 不存在时才设置
-    if not st.session_state.get("api_key"):
-        st.session_state.api_key = api_key_from_secrets
-    if "api_base" not in st.session_state:
-        st.session_state.api_base = api_base_from_secrets
-    if "model" not in st.session_state:
-        st.session_state.model = model_from_secrets
-
-    has_secrets = True
-except (KeyError, FileNotFoundError):
-    has_secrets = False
-
-# 初始化 session state（只在不存在时设置，避免覆盖 Secrets 的配置）
+# =============================================================================
+# 初始化 Session State
+# =============================================================================
+# 存储消息列表（包含用户和 AI 的对话记录）
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "api_key" not in st.session_state:
-    st.session_state.api_key = ""
-if "api_base" not in st.session_state:
-    st.session_state.api_base = "https://api.openai.com/v1"
-if "model" not in st.session_state:
-    st.session_state.model = "gpt-4o-mini"
-if "system_prompt" not in st.session_state:
-    st.session_state.system_prompt = """你是一位来自新加坡科技设计大学 (SUTD) 的资深 AI 教育学教授。
 
-你的教育理念：
-1. 采用苏格拉底式教学方法，通过提问引导学生独立思考
-2. 鼓励学生探索问题的本质，而非直接给出答案
-3. 提供启发性建议，帮助学生建立批判性思维
-4. 回答问题时，先确认学生对基础概念的理解程度
-5. 使用简洁清晰的语言，避免过于复杂的术语
-6. 在适当时候提供实际案例和应用场景
+# 存储智谱 API Key
+if "zhipu_api_key" not in st.session_state:
+    st.session_state.zhipu_api_key = ""
 
-回答风格：
-- 亲切、专业，像一位耐心的大师
-- 经常以反问句引导学生深入思考
-- 鼓励学生表达自己的见解
-- 肯定学生的正确思考方向
+# 存储选择的模型名称
+if "selected_model" not in st.session_state:
+    st.session_state.selected_model = "glm-4.7"  # 默认选中 glm-4.7
 
-请用中文回答，保持教育的专业性和启发性。"""
+# 存储智谱 AI 客户端实例（避免重复创建）
+if "zhipu_client" not in st.session_state:
+    st.session_state.zhipu_client = None
 
-def get_ai_response(api_key, api_base, model, messages, system_prompt):
-    """使用 httpx 直接调用 API"""
-    # 确保 api_base 不以斜杠结尾（避免双斜杠问题）
-    api_base = api_base.rstrip('/')
+# =============================================================================
+# 硬编码的 AI 角色设定（System Prompt）
+# =============================================================================
+SYSTEM_PROMPT = """你现在是 SUTD (新加坡科技与设计大学) '人工智能在教育中的应用' 课程的资深教授兼 AI 助教。
 
-    # 添加系统提示词
-    conversation = [{"role": "system", "content": system_prompt}]
-    conversation.extend(messages)
+你的核心教学法是苏格拉底式提问法 (Socratic Method)。
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
+无论学生问什么问题，你绝对不能直接给出完整答案或直接写出完整代码。
 
-    data = {
-        "model": model,
-        "messages": conversation,
-        "temperature": 0.7
-    }
+你必须：
+
+先肯定学生的提问，给予鼓励。
+
+给出一点点核心提示或概念解释。
+
+用一个启发性的问题作为结尾，引导学生自己思考出下一步或得出结论。
+
+语气要专业、温和、富有学术严谨性，时刻展现出一位顶尖教育者的素养。"""
+
+# =============================================================================
+# 核心功能函数
+# =============================================================================
+
+def initialize_zhipu_client(api_key):
+    """
+    初始化智谱 AI 客户端
+
+    Args:
+        api_key: 智谱 API Key
+
+    Returns:
+        ZhipuAI 客户端实例
+    """
+    try:
+        return ZhipuAI(api_key=api_key)
+    except Exception as e:
+        st.error(f"❌ 初始化客户端失败: {str(e)}")
+        return None
+
+
+def get_ai_response(client, model_name, messages):
+    """
+    调用智谱 AI 大模型获取回复
+
+    Args:
+        client: ZhipuAI 客户端实例
+        model_name: 模型名称（glm-4.7 或 glm-4-flash）
+        messages: 对话历史列表
+
+    Returns:
+        AI 的回复文本，或错误信息字符串
+    """
+    # 构建完整的对话列表，包含 System Prompt
+    full_conversation = [{"role": "system", "content": SYSTEM_PROMPT}]
+    full_conversation.extend(messages)
 
     try:
-        # 使用 follow_redirects=True 自动跟随重定向
-        with httpx.Client(timeout=60.0, follow_redirects=True) as client:
-            response = client.post(
-                f"{api_base}/chat/completions",
-                json=data,
-                headers=headers
-            )
-            response.raise_for_status()
-            result = response.json()
-            return result["choices"][0]["message"]["content"]
-    except httpx.HTTPStatusError as e:
-        try:
-            error_detail = e.response.json()
-            error_msg = error_detail.get('error', {}).get('message', str(e))
-            return f"❌ API 错误: {error_msg}\n📍 使用的端点: {api_base}\n📍 使用的模型: {model}"
-        except:
-            return f"❌ HTTP 错误: {e.response.status_code}\n📍 使用的端点: {api_base}"
+        # 调用智谱 AI API
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=full_conversation,
+            temperature=0.7,  # 稍高的温度值，保持一定的创造性
+        )
+        # 返回 AI 的回复内容
+        return response.choices[0].message.content
     except Exception as e:
-        return f"❌ 发生错误: {str(e)}\n📍 使用的端点: {api_base}\n📍 使用的模型: {model}"
+        # 拦截异常并返回友好的错误信息
+        error_msg = str(e)
+        # 检查是否是 API Key 相关错误
+        if "API" in error_msg or "api_key" in error_msg.lower() or "unauthorized" in error_msg.lower():
+            return f"⚠️ 智谱 API Key 验证失败，请检查左侧配置的 API Key 是否正确。"
+        # 检查是否是模型相关错误
+        elif "model" in error_msg:
+            return f"⚠️ 模型调用失败，请尝试切换其他模型。"
+        # 其他错误
+        else:
+            return f"⚠️ 调用智谱 API 时发生错误: {error_msg}"
 
-# 侧边栏
+
+def clear_chat_history():
+    """
+    清空对话历史记录
+    """
+    st.session_state.messages = []
+    st.rerun()
+
+
+# =============================================================================
+# 主界面 - 侧边栏配置区域
+# =============================================================================
+
 with st.sidebar:
-    st.title("⚙️ 设置")
-
-    # 显示 Secrets 配置状态
-    if has_secrets:
-        st.success("✅ 已从环境配置读取 API 设置")
-    else:
-        st.warning("⚠️ 未检测到环境配置，请手动输入")
+    # 侧边栏标题
+    st.title("⚙️ 配置")
 
     st.divider()
 
-    # API Provider 预设
-    provider = st.selectbox(
-        "选择 API 提供商",
-        ["智谱海外版 (z.ai)", "智谱国内版 (GLM)", "OpenAI", "自定义"],
-        help="选择预设或自定义 API 端点"
-    )
+    # --------------------
+    # 1. API Key 配置
+    # --------------------
+    st.subheader("🔑 API 配置")
 
-    # 根据预设填充默认值
-    if provider == "OpenAI":
-        default_base = "https://api.openai.com/v1"
-        default_model = "gpt-4o-mini"
-    elif provider == "智谱海外版 (z.ai)":
-        default_base = "https://api.z.ai/api/coding/paas/v4"
-        default_model = "glm-4.7"
-    elif provider == "智谱国内版 (GLM)":
-        default_base = "https://open.bigmodel.cn/api/paas/v4"
-        default_model = "glm-4.7"
-    else:
-        default_base = st.session_state.api_base
-        default_model = st.session_state.model
-
-    st.divider()
-
-    # API 配置
-    st.subheader("🔌 API 配置")
-
-    api_base = st.text_input(
-        "API Base URL",
-        value=default_base,
-        placeholder="https://api.openai.com/v1",
-        help="API 服务的基础地址"
-    )
-
-    model = st.text_input(
-        "模型名称",
-        value=default_model,
-        placeholder="gpt-4o-mini",
-        help="使用的模型名称"
-    )
-
-    st.divider()
-
-    # API Key 输入
-    api_key = st.text_input(
-        "API Key",
+    zhipu_api_key = st.text_input(
+        label="智谱 API Key",
         type="password",
-        placeholder="输入你的 API Key",
-        help="部署时会从 secrets 自动读取"
+        value=st.session_state.zhipu_api_key,
+        placeholder="请输入智谱海外版 API Key",
+        help="获取地址: https://z.ai/manage-apikey/apikey-list"
     )
 
-    # 保存配置到 session state
-    if api_key:
-        st.session_state.api_key = api_key
-    if api_base:
-        st.session_state.api_base = api_base
-    if model:
-        st.session_state.model = model
-
-    # 显示当前配置状态
-    if st.session_state.api_key:
-        st.caption(f"🔑 API Key 已配置 (长度: {len(st.session_state.api_key)})")
-        st.caption(f"🌐 API 端点: {st.session_state.api_base}")
-        st.caption(f"🤖 模型: {st.session_state.model}")
-        if provider == "智谱海外版 (z.ai)":
-            st.caption("📖 文档: https://z.ai/docs")
-    else:
-        st.caption("⚠️ API Key 未配置")
+    # 保存用户输入的 API Key 到 Session State
+    if zhipu_api_key != st.session_state.zhipu_api_key:
+        st.session_state.zhipu_api_key = zhipu_api_key
+        # 当 API Key 变化时，清除旧的客户端实例
+        st.session_state.zhipu_client = None
 
     st.divider()
 
-    # System Prompt 编辑
-    st.subheader("📝 系统提示词")
-    st.markdown("自定义 AI 助手的角色和行为：")
-    system_prompt = st.text_area(
-        "System Prompt",
-        value=st.session_state.system_prompt,
-        height=300,
-        help="这定义了 AI 的角色设定和回答风格"
+    # --------------------
+    # 2. 模型选择
+    # --------------------
+    st.subheader("🤖 模型选择")
+
+    available_models = ["glm-4.7", "glm-4-flash"]
+
+    # 使用 selectbox 让用户选择模型，默认选中 glm-4.7
+    selected_model = st.selectbox(
+        label="选择大模型",
+        options=available_models,
+        index=0 if st.session_state.selected_model not in available_models else available_models.index(st.session_state.selected_model),
+        help="glm-4.7: 更强大的模型；glm-4-flash: 快速响应的模型"
     )
 
-    # 保存 System Prompt 到 session state
-    if system_prompt != st.session_state.system_prompt:
-        st.session_state.system_prompt = system_prompt
+    # 保存用户选择的模型到 Session State
+    if selected_model != st.session_state.selected_model:
+        st.session_state.selected_model = selected_model
 
     st.divider()
 
-    # 清空聊天记录按钮
-    if st.button("🗑️ 清空聊天记录", type="secondary"):
-        st.session_state.messages = []
-        st.rerun()
+    # --------------------
+    # 3. 会话管理
+    # --------------------
+    st.subheader("💾 会话管理")
 
-    # 显示聊天记录数量
-    st.caption(f"当前对话轮数: {len(st.session_state.messages) // 2}")
+    if st.button(
+        label="🗑️ 清空对话历史",
+        type="secondary",
+        use_container_width=True
+    ):
+        clear_chat_history()
 
-# 主界面
-st.title("🎓 SUTD AI 教育助手")
+    # 显示当前对话轮数
+    if st.session_state.messages:
+        st.caption(f"当前对话轮数: {len(st.session_state.messages)}")
+
+# =============================================================================
+# 主界面 - 交互区域
+# =============================================================================
+
+# 头部区域：大标题和欢迎语
+st.title("🎓 SUTD AI 课程助教")
+
+st.markdown(
+    """
+    本系统基于 **苏格拉底式提问法** 设计，旨在通过启发式对话，
+    引导你自主思考与探索，而非直接提供答案。
+
+    无论遇到什么课程疑难，我都会以温和而专业的方式陪伴你学习。
+    """
+)
+
 st.markdown("---")
 
-# 显示 API Key 提示
-if not st.session_state.api_key:
-    st.error("⚠️ 请先在左侧边栏配置 API Key 后再开始对话")
-    st.info("📌 部署到 Streamlit Cloud 时，请在 Settings → Secrets 中添加：")
-    st.code("OPENAI_API_KEY = \"你的密钥\"")
-    st.code("API_BASE = \"https://api.openai.com/v1\"  # 可选")
-    st.code("MODEL = \"gpt-4o-mini\"  # 可选")
-
-# 聊天历史显示
+# 对话区域：展示历史消息
 for message in st.session_state.messages:
-    with st.chat_message(message["role"], avatar="👨‍🏫" if message["role"] == "assistant" else "👤"):
-        st.markdown(message["content"])
+    # 根据消息角色显示不同的头像
+    if message["role"] == "user":
+        with st.chat_message("user", avatar="🧑‍🎓"):
+            st.markdown(message["content"])
+    else:  # assistant
+        with st.chat_message("assistant", avatar="🤖"):
+            st.markdown(message["content"])
 
-# 用户输入
-prompt = st.chat_input("请输入你的问题...")
-if prompt:
-    if not st.session_state.api_key:
-        st.error("⚠️ 请先在左侧边栏输入 API Key")
+# 输入区域：聊天输入框
+user_input = st.chat_input(
+    placeholder="请输入你关于课程的疑问..."
+)
+
+# =============================================================================
+# 用户输入处理逻辑
+# =============================================================================
+
+if user_input:
+    # 状态检查：如果没有配置 API Key，拦截请求并给出提示
+    if not st.session_state.zhipu_api_key:
+        st.warning("⚠️ 请先在左侧边栏输入智谱 API Key 后再开始对话")
+        st.stop()
+
+    # 初始化智谱 AI 客户端（如果尚未初始化）
+    if st.session_state.zhipu_client is None:
+        st.session_state.zhipu_client = initialize_zhipu_client(st.session_state.zhipu_api_key)
+
+    # 检查客户端是否成功初始化
+    if st.session_state.zhipu_client is None:
+        st.error("❌ 无法初始化智谱 AI 客户端，请检查 API Key 是否正确")
         st.stop()
 
     # 显示用户消息
-    st.chat_message("user", avatar="👤").markdown(prompt)
+    with st.chat_message("user", avatar="🧑‍🎓"):
+        st.markdown(user_input)
 
-    # 添加到历史
-    st.session_state.messages.append({"role": "user", "content": prompt})
+    # 将用户消息添加到对话历史
+    st.session_state.messages.append({"role": "user", "content": user_input})
 
-    # 获取 AI 响应
-    with st.chat_message("assistant", avatar="👨‍🏫"):
+    # 调用 AI 获取回复
+    with st.chat_message("assistant", avatar="🤖"):
+        # 显示加载状态
         with st.spinner("思考中..."):
-            response = get_ai_response(
-                st.session_state.api_key,
-                st.session_state.api_base,
-                st.session_state.model,
-                st.session_state.messages,
-                st.session_state.system_prompt
+            # 调用 API 并获取回复
+            ai_response = get_ai_response(
+                client=st.session_state.zhipu_client,
+                model_name=st.session_state.selected_model,
+                messages=st.session_state.messages
             )
-            st.markdown(response)
+            st.markdown(ai_response)
 
-    # 添加 AI 响应到历史
-    st.session_state.messages.append({"role": "assistant", "content": response})
+    # 将 AI 回复添加到对话历史
+    st.session_state.messages.append({"role": "assistant", "content": ai_response})
