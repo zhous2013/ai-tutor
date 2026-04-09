@@ -12,21 +12,24 @@ st.set_page_config(
 # 从 secrets 读取配置
 has_secrets = False
 try:
-    # 优先从 secrets 读取配置
+    # 直接从 secrets 读取配置（最高优先级）
     api_key_from_secrets = st.secrets["OPENAI_API_KEY"]
+    api_base_from_secrets = st.secrets.get("API_BASE", "https://api.openai.com/v1")
+    model_from_secrets = st.secrets.get("MODEL", "gpt-4o-mini")
+
+    # 只有在 session_state 不存在时才设置
     if not st.session_state.get("api_key"):
         st.session_state.api_key = api_key_from_secrets
-    api_base_from_secrets = st.secrets.get("API_BASE")
-    if api_base_from_secrets:
+    if "api_base" not in st.session_state:
         st.session_state.api_base = api_base_from_secrets
-    model_from_secrets = st.secrets.get("MODEL")
-    if model_from_secrets:
+    if "model" not in st.session_state:
         st.session_state.model = model_from_secrets
+
     has_secrets = True
 except (KeyError, FileNotFoundError):
     has_secrets = False
 
-# 初始化 session state
+# 初始化 session state（只在不存在时设置，避免覆盖 Secrets 的配置）
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "api_key" not in st.session_state:
