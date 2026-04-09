@@ -12,13 +12,17 @@ st.set_page_config(
 # 从 secrets 读取配置
 has_secrets = False
 try:
+    # 优先从 secrets 读取配置
+    api_key_from_secrets = st.secrets["OPENAI_API_KEY"]
     if not st.session_state.get("api_key"):
-        st.session_state.api_key = st.secrets["OPENAI_API_KEY"]
-        has_secrets = True
-    if not st.session_state.get("api_base"):
-        st.session_state.api_base = st.secrets.get("API_BASE", "https://api.openai.com/v1")
-    if not st.session_state.get("model"):
-        st.session_state.model = st.secrets.get("MODEL", "gpt-4o-mini")
+        st.session_state.api_key = api_key_from_secrets
+    api_base_from_secrets = st.secrets.get("API_BASE")
+    if api_base_from_secrets:
+        st.session_state.api_base = api_base_from_secrets
+    model_from_secrets = st.secrets.get("MODEL")
+    if model_from_secrets:
+        st.session_state.model = model_from_secrets
+    has_secrets = True
 except (KeyError, FileNotFoundError):
     has_secrets = False
 
@@ -84,11 +88,12 @@ def get_ai_response(api_key, api_base, model, messages, system_prompt):
     except httpx.HTTPStatusError as e:
         try:
             error_detail = e.response.json()
-            return f"❌ API 错误: {error_detail.get('error', {}).get('message', str(e))}"
+            error_msg = error_detail.get('error', {}).get('message', str(e))
+            return f"❌ API 错误: {error_msg}\n📍 使用的端点: {api_base}\n📍 使用的模型: {model}"
         except:
-            return f"❌ HTTP 错误: {e.response.status_code}"
+            return f"❌ HTTP 错误: {e.response.status_code}\n📍 使用的端点: {api_base}"
     except Exception as e:
-        return f"❌ 发生错误: {str(e)}"
+        return f"❌ 发生错误: {str(e)}\n📍 使用的端点: {api_base}\n📍 使用的模型: {model}"
 
 # 侧边栏
 with st.sidebar:
