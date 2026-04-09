@@ -113,7 +113,7 @@ with st.sidebar:
     # API Provider 预设
     provider = st.selectbox(
         "选择 API 提供商",
-        ["OpenAI", "智谱海外版 (z.ai)", "智谱国内版 (GLM)", "自定义"],
+        ["智谱海外版 (z.ai)", "智谱国内版 (GLM)", "OpenAI", "自定义"],
         help="选择预设或自定义 API 端点"
     )
 
