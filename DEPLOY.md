@@ -11,7 +11,7 @@
 ```toml
 OPENAI_API_KEY = "你的智谱海外版API Key"
 API_BASE = "https://api.z.ai/api/coding/paas/v4"
-MODEL = "glm-4.7"
+MODEL = "glm-4"
 ```
 
 #### OpenAI 配置：
